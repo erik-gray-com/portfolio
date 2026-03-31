@@ -1,0 +1,596 @@
+import { useState, useEffect } from "react";
+import { motion } from "motion/react";
+import { Link } from "react-router";
+import { 
+  ArrowLeft, 
+  Wallet, 
+  Check, 
+  AlertCircle, 
+  Coins, 
+  TrendingUp,
+  Shield,
+  Gift,
+  Clock,
+  Info
+} from "lucide-react";
+import { ethers } from "ethers";
+import { toast } from "sonner";
+
+interface WalletState {
+  connected: boolean;
+  address: string;
+  balance: string;
+  chainId: number;
+  network: string;
+}
+
+interface AirdropState {
+  lastClaim: number;
+  totalClaimed: number;
+  dailyAmount: number;
+}
+
+export function CryptoSecurity() {
+  const [wallet, setWallet] = useState<WalletState>({
+    connected: false,
+    address: "",
+    balance: "0.0",
+    chainId: 0,
+    network: "",
+  });
+
+  const [airdrop, setAirdrop] = useState<AirdropState>({
+    lastClaim: 0,
+    totalClaimed: 0,
+    dailyAmount: 100, // 100 tokens per day
+  });
+
+  const [loading, setLoading] = useState(false);
+  const [canClaim, setCanClaim] = useState(false);
+  const [timeUntilNextClaim, setTimeUntilNextClaim] = useState("");
+
+  // Load airdrop state from localStorage on mount
+  useEffect(() => {
+    const savedAirdrop = localStorage.getItem("cryptoAirdropState");
+    if (savedAirdrop) {
+      const parsed = JSON.parse(savedAirdrop);
+      setAirdrop(parsed);
+    }
+  }, []);
+
+  // Check if user can claim (24 hours since last claim)
+  useEffect(() => {
+    const checkClaimStatus = () => {
+      const now = Date.now();
+      const hoursSinceLastClaim = (now - airdrop.lastClaim) / (1000 * 60 * 60);
+      
+      if (hoursSinceLastClaim >= 24 || airdrop.lastClaim === 0) {
+        setCanClaim(true);
+        setTimeUntilNextClaim("Available now!");
+      } else {
+        setCanClaim(false);
+        const hoursRemaining = 24 - hoursSinceLastClaim;
+        const hours = Math.floor(hoursRemaining);
+        const minutes = Math.floor((hoursRemaining - hours) * 60);
+        setTimeUntilNextClaim(`${hours}h ${minutes}m`);
+      }
+    };
+
+    checkClaimStatus();
+    const interval = setInterval(checkClaimStatus, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, [airdrop.lastClaim]);
+
+  // Check if MetaMask is installed
+  const isMetaMaskInstalled = () => {
+    const { ethereum } = window as any;
+    return Boolean(ethereum && ethereum.isMetaMask);
+  };
+
+  // Connect to MetaMask
+  const connectWallet = async () => {
+    if (!isMetaMaskInstalled()) {
+      toast.error("Please install MetaMask to continue");
+      window.open("https://metamask.io/download/", "_blank");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { ethereum } = window as any;
+      const provider = new ethers.BrowserProvider(ethereum);
+      
+      // Request account access
+      const accounts = await provider.send("eth_requestAccounts", []);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      const balance = await provider.getBalance(address);
+      const network = await provider.getNetwork();
+
+      setWallet({
+        connected: true,
+        address,
+        balance: ethers.formatEther(balance),
+        chainId: Number(network.chainId),
+        network: network.name,
+      });
+
+      toast.success("Wallet connected successfully!");
+    } catch (error: any) {
+      console.error("Error connecting wallet:", error);
+      toast.error(error.message || "Failed to connect wallet");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Disconnect wallet
+  const disconnectWallet = () => {
+    setWallet({
+      connected: false,
+      address: "",
+      balance: "0.0",
+      chainId: 0,
+      network: "",
+    });
+    toast.success("Wallet disconnected");
+  };
+
+  // Switch to Sepolia testnet
+  const switchToSepolia = async () => {
+    try {
+      const { ethereum } = window as any;
+      await ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: "0xaa36a7" }], // Sepolia testnet chain ID
+      });
+      
+      // Refresh wallet state
+      await connectWallet();
+      toast.success("Switched to Sepolia testnet");
+    } catch (error: any) {
+      if (error.code === 4902) {
+        // Chain not added to MetaMask
+        try {
+          await (window as any).ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [
+              {
+                chainId: "0xaa36a7",
+                chainName: "Sepolia Test Network",
+                nativeCurrency: {
+                  name: "SepoliaETH",
+                  symbol: "ETH",
+                  decimals: 18,
+                },
+                rpcUrls: ["https://rpc.sepolia.org"],
+                blockExplorerUrls: ["https://sepolia.etherscan.io"],
+              },
+            ],
+          });
+          toast.success("Sepolia testnet added and switched");
+          await connectWallet();
+        } catch (addError) {
+          console.error("Error adding Sepolia:", addError);
+          toast.error("Failed to add Sepolia testnet");
+        }
+      } else {
+        console.error("Error switching to Sepolia:", error);
+        toast.error("Failed to switch to Sepolia testnet");
+      }
+    }
+  };
+
+  // Claim daily airdrop
+  const claimAirdrop = async () => {
+    if (!wallet.connected) {
+      toast.error("Please connect your wallet first");
+      return;
+    }
+
+    if (!canClaim) {
+      toast.error("You can only claim once every 24 hours");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Simulate blockchain transaction
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      const newAirdropState = {
+        lastClaim: Date.now(),
+        totalClaimed: airdrop.totalClaimed + airdrop.dailyAmount,
+        dailyAmount: airdrop.dailyAmount,
+      };
+
+      setAirdrop(newAirdropState);
+      localStorage.setItem("cryptoAirdropState", JSON.stringify(newAirdropState));
+
+      toast.success(`Successfully claimed ${airdrop.dailyAmount} CRYPTO tokens!`);
+    } catch (error: any) {
+      console.error("Error claiming airdrop:", error);
+      toast.error("Failed to claim airdrop");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Listen for account changes
+  useEffect(() => {
+    if (wallet.connected) {
+      const { ethereum } = window as any;
+      
+      const handleAccountsChanged = (accounts: string[]) => {
+        if (accounts.length === 0) {
+          disconnectWallet();
+        } else {
+          connectWallet();
+        }
+      };
+
+      const handleChainChanged = () => {
+        connectWallet();
+      };
+
+      ethereum.on("accountsChanged", handleAccountsChanged);
+      ethereum.on("chainChanged", handleChainChanged);
+
+      return () => {
+        ethereum.removeListener("accountsChanged", handleAccountsChanged);
+        ethereum.removeListener("chainChanged", handleChainChanged);
+      };
+    }
+  }, [wallet.connected]);
+
+  const formatAddress = (address: string) => {
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  };
+
+  const stats = [
+    {
+      icon: Coins,
+      label: "Total Claimed",
+      value: `${airdrop.totalClaimed} CRYPTO`,
+      color: "text-purple-600",
+      bg: "bg-purple-50",
+    },
+    {
+      icon: Gift,
+      label: "Daily Airdrop",
+      value: `${airdrop.dailyAmount} CRYPTO`,
+      color: "text-blue-600",
+      bg: "bg-blue-50",
+    },
+    {
+      icon: Clock,
+      label: "Next Claim",
+      value: timeUntilNextClaim,
+      color: "text-green-600",
+      bg: "bg-green-50",
+    },
+    {
+      icon: Shield,
+      label: "Network",
+      value: wallet.network || "Not Connected",
+      color: "text-orange-600",
+      bg: "bg-orange-50",
+    },
+  ];
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
+            <Link
+              to="/"
+              className="flex items-center gap-2 text-gray-600 hover:text-black transition-colors"
+            >
+              <ArrowLeft size={20} />
+              <span>Back to Portfolio</span>
+            </Link>
+
+            {wallet.connected ? (
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:block px-4 py-2 bg-gray-100 rounded-full">
+                  <div className="flex items-center gap-2">
+                    <div className="size-2 rounded-full bg-green-500"></div>
+                    <span className="text-sm font-medium">
+                      {formatAddress(wallet.address)}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={disconnectWallet}
+                  className="px-4 py-2 border border-gray-300 rounded-full text-sm hover:bg-gray-50 transition-colors"
+                >
+                  Disconnect
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={connectWallet}
+                disabled={loading}
+                className="flex items-center gap-2 px-6 py-3 bg-black text-white rounded-full hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Wallet size={20} />
+                Connect Wallet
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {/* Hero Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          className="text-center mb-16"
+        >
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 rounded-full mb-6">
+            <Shield size={18} />
+            <span className="font-medium">Cryptographic Security</span>
+          </div>
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold mb-6">
+            Daily Token Airdrop
+          </h1>
+          <p className="text-lg sm:text-xl text-gray-600 max-w-3xl mx-auto">
+            Connect your MetaMask wallet to claim free CRYPTO tokens every day on the Sepolia testnet.
+            Built with secure blockchain integration and smart contract functionality.
+          </p>
+        </motion.div>
+
+        {/* Info Alert */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.1 }}
+          className="max-w-4xl mx-auto mb-12"
+        >
+          <div className="flex gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+            <Info className="text-blue-600 shrink-0 mt-0.5" size={20} />
+            <div className="text-sm text-blue-900">
+              <p className="font-medium mb-1">Testnet Only</p>
+              <p>
+                This application uses the Sepolia testnet. No real funds are involved. 
+                Switch to Sepolia network in MetaMask to interact with the airdrop.
+              </p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Stats Grid */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+          className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12"
+        >
+          {stats.map((stat, index) => (
+            <div
+              key={index}
+              className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm"
+            >
+              <div className={`size-12 rounded-full ${stat.bg} flex items-center justify-center mb-4`}>
+                <stat.icon className={stat.color} size={24} />
+              </div>
+              <p className="text-sm text-gray-600 mb-1">{stat.label}</p>
+              <p className="text-xl font-bold">{stat.value}</p>
+            </div>
+          ))}
+        </motion.div>
+
+        {/* Main Action Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.3 }}
+          className="max-w-2xl mx-auto"
+        >
+          <div className="p-8 bg-white rounded-3xl border border-gray-200 shadow-lg">
+            {!wallet.connected ? (
+              <div className="text-center py-8">
+                <div className="size-20 mx-auto rounded-full bg-gray-100 flex items-center justify-center mb-6">
+                  <Wallet size={40} className="text-gray-400" />
+                </div>
+                <h3 className="text-2xl font-bold mb-3">Connect Your Wallet</h3>
+                <p className="text-gray-600 mb-8">
+                  Connect MetaMask to start claiming your daily airdrop tokens
+                </p>
+                <button
+                  onClick={connectWallet}
+                  disabled={loading}
+                  className="px-8 py-4 bg-black text-white rounded-full hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 mx-auto"
+                >
+                  <Wallet size={20} />
+                  {loading ? "Connecting..." : "Connect MetaMask"}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-start justify-between mb-6">
+                  <div>
+                    <h3 className="text-2xl font-bold mb-2">Wallet Connected</h3>
+                    <p className="text-gray-600">
+                      {formatAddress(wallet.address)}
+                    </p>
+                  </div>
+                  <div className="size-12 rounded-full bg-green-100 flex items-center justify-center">
+                    <Check className="text-green-600" size={24} />
+                  </div>
+                </div>
+
+                <div className="p-4 bg-gray-50 rounded-xl mb-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-gray-600">Network</span>
+                    <span className="text-sm font-medium">{wallet.network}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Balance</span>
+                    <span className="text-sm font-medium">
+                      {parseFloat(wallet.balance).toFixed(4)} ETH
+                    </span>
+                  </div>
+                </div>
+
+                {wallet.network !== "sepolia" && (
+                  <div className="mb-6">
+                    <div className="flex gap-3 p-4 bg-orange-50 border border-orange-200 rounded-xl mb-4">
+                      <AlertCircle className="text-orange-600 shrink-0 mt-0.5" size={20} />
+                      <div className="text-sm text-orange-900">
+                        <p className="font-medium mb-1">Wrong Network</p>
+                        <p>Please switch to Sepolia testnet to claim airdrops.</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={switchToSepolia}
+                      className="w-full px-6 py-3 bg-orange-600 text-white rounded-full hover:bg-orange-700 transition-colors"
+                    >
+                      Switch to Sepolia Testnet
+                    </button>
+                  </div>
+                )}
+
+                {wallet.network === "sepolia" && (
+                  <div>
+                    <div className="text-center mb-6">
+                      <div className="size-16 mx-auto rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center mb-4">
+                        <Gift size={32} className="text-white" />
+                      </div>
+                      <h4 className="text-xl font-bold mb-2">Daily Airdrop</h4>
+                      <p className="text-3xl font-bold text-purple-600 mb-2">
+                        {airdrop.dailyAmount} CRYPTO
+                      </p>
+                      {canClaim ? (
+                        <p className="text-green-600 font-medium">Ready to claim!</p>
+                      ) : (
+                        <p className="text-gray-600">Next claim in {timeUntilNextClaim}</p>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={claimAirdrop}
+                      disabled={!canClaim || loading}
+                      className="w-full px-8 py-4 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-full hover:from-purple-700 hover:to-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-medium"
+                    >
+                      {loading ? (
+                        "Processing..."
+                      ) : canClaim ? (
+                        <>
+                          <Gift size={20} />
+                          Claim Airdrop
+                        </>
+                      ) : (
+                        <>
+                          <Clock size={20} />
+                          Claim Available in {timeUntilNextClaim}
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Features Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.4 }}
+          className="mt-16"
+        >
+          <h2 className="text-2xl font-bold text-center mb-8">How It Works</h2>
+          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            <div className="text-center">
+              <div className="size-16 mx-auto rounded-full bg-purple-100 flex items-center justify-center mb-4">
+                <Wallet className="text-purple-600" size={28} />
+              </div>
+              <h3 className="font-bold mb-2">1. Connect Wallet</h3>
+              <p className="text-sm text-gray-600">
+                Connect your MetaMask wallet to the Sepolia testnet securely
+              </p>
+            </div>
+            <div className="text-center">
+              <div className="size-16 mx-auto rounded-full bg-blue-100 flex items-center justify-center mb-4">
+                <Gift className="text-blue-600" size={28} />
+              </div>
+              <h3 className="font-bold mb-2">2. Claim Tokens</h3>
+              <p className="text-sm text-gray-600">
+                Claim your daily allocation of 100 CRYPTO tokens every 24 hours
+              </p>
+            </div>
+            <div className="text-center">
+              <div className="size-16 mx-auto rounded-full bg-green-100 flex items-center justify-center mb-4">
+                <TrendingUp className="text-green-600" size={28} />
+              </div>
+              <h3 className="font-bold mb-2">3. Track Progress</h3>
+              <p className="text-sm text-gray-600">
+                Monitor your total claimed tokens and claim history over time
+              </p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Technical Details */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.5 }}
+          className="mt-16 max-w-4xl mx-auto"
+        >
+          <div className="p-8 bg-gradient-to-br from-gray-50 to-gray-100 rounded-3xl border border-gray-200">
+            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+              <Shield size={28} />
+              Technical Implementation
+            </h2>
+            <div className="space-y-4 text-gray-700">
+              <div className="flex gap-3">
+                <Check className="text-green-600 shrink-0 mt-1" size={20} />
+                <p>
+                  <strong>MetaMask Integration:</strong> Secure wallet connection using ethers.js library
+                  for seamless blockchain interaction
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <Check className="text-green-600 shrink-0 mt-1" size={20} />
+                <p>
+                  <strong>Testnet Functionality:</strong> Built specifically for Sepolia testnet with
+                  automatic network detection and switching
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <Check className="text-green-600 shrink-0 mt-1" size={20} />
+                <p>
+                  <strong>Daily Airdrop System:</strong> Time-based claiming mechanism with 24-hour cooldown
+                  period tracked via localStorage
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <Check className="text-green-600 shrink-0 mt-1" size={20} />
+                <p>
+                  <strong>Real-time Updates:</strong> Automatic wallet balance updates and network change detection
+                  for optimal user experience
+                </p>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </main>
+
+      {/* Footer */}
+      <footer className="mt-20 py-8 border-t border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-600 text-sm">
+          <p>© 2026 Erik Gray. This is a testnet demonstration project.</p>
+        </div>
+      </footer>
+    </div>
+  );
+}
